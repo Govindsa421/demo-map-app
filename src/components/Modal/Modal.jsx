@@ -2,7 +2,7 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { XMarkIcon } from '@heroicons/react/24/outline'
 
-const Modal = ({ isOpen, onClose, title, content, header }) => {
+const Modal = ({ isOpen, onClose, title, content, header, btnName }) => {
   if (!isOpen) return null
 
   return (
@@ -37,7 +37,7 @@ const Modal = ({ isOpen, onClose, title, content, header }) => {
 
             <div className='border-t-2 border-slate-200 p-4 flex justify-end'>
               <button onClick={onClose} className='px-4 py-2 font-bold bg-indigo-600 text-white rounded'>
-                Generate Data
+                {btnName}
               </button>
             </div>
           </motion.div>

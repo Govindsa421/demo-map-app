@@ -1,15 +1,12 @@
+/* eslint-disable no-unused-vars */
 import { useState, useEffect, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import MapboxDraw from '@mapbox/mapbox-gl-draw'
 import Modal from './components/Modal/Modal'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css'
-import {
-  ArrowLeftStartOnRectangleIcon,
-  ArrowRightStartOnRectangleIcon,
-  ArrowUpTrayIcon,
-  EllipsisVerticalIcon,
-} from '@heroicons/react/24/outline'
+import MapControls from './components/map/MapControls'
+import TableComponent from './components/map/TableComponent'
 
 const MapApp = () => {
   const mapContainer = useRef()
@@ -18,7 +15,9 @@ const MapApp = () => {
 
   const [modalData, setModalData] = useState(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isPolygonToolModalOpen, setIsPolygonToolModalOpen] = useState(false)
   const [dropdownVisible, setDropdownVisible] = useState(null) // Track which dropdown is open
+  const [polygonToolData, setPolygonToolData] = useState(null)
 
   const [viewState] = useState({
     center: [-100.43, 35],
@@ -76,6 +75,11 @@ const MapApp = () => {
   const handleInsertPolygon = (index, position) => {
     drawControl.current.changeMode('draw_polygon')
     mapInstance.current.getCanvas().style.cursor = 'crosshair'
+
+    if (modalData && modalData.content && modalData.content[index]) {
+      const [lat, lon] = modalData.content[index].Coordinates.split(', ').map(Number)
+      mapInstance.current.flyTo({ center: [lon, lat], zoom: 15 })
+    }
     setDropdownVisible(null)
   }
 
@@ -87,7 +91,7 @@ const MapApp = () => {
       return
     }
 
-    const feature = features.features[0] // Use the first feature
+    const feature = features.features[0]
     const isPolygon = feature.geometry.type === 'Polygon'
     const coordinates = isPolygon ? feature.geometry.coordinates[0] : feature.geometry.coordinates
     const processedCoords = coordinates.map((coord, index) => ({
@@ -98,58 +102,7 @@ const MapApp = () => {
 
     setModalData({
       title: isPolygon ? 'Polygon Waypoints' : 'LineString Waypoints',
-      content: (
-        <table className='w-full text-left border-collapse'>
-          <thead>
-            <tr>
-              <th className='p-2 border-b-2 border-gray-300'>WP</th>
-              <th className='p-2 border-b-2 border-gray-300'>Coordinates</th>
-              <th className='p-2 border-b-2 border-gray-300'>Distance</th>
-              <th className='p-2 border-b-2 border-gray-300'>
-                <ArrowUpTrayIcon className='w-6 h-6 text-blue-400' />
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {processedCoords.map((item, idx) => (
-              <tr key={idx} className='border-b'>
-                <td className='p-2 text-gray-600 font-semibold'>{item.WP}</td>
-                <td className='p-2 text-gray-600'>{item.Coordinates}</td>
-                <td className='p-2 text-gray-600'>{item.Distance > 0 ? item.Distance.toFixed(2) : '--'}</td>
-                <td className='p-2 text-gray-600 relative'>
-                  <EllipsisVerticalIcon
-                    className='h-6 w-6 text-gray-800 cursor-pointer'
-                    onClick={
-                      () => setDropdownVisible(dropdownVisible === idx ? null : idx) // Toggle dropdown visibility for the clicked row
-                    }
-                  />
-                  {/* Dropdown Menu */}
-                  {dropdownVisible === idx && (
-                    <div className='absolute right-0 bg-white shadow-lg border rounded-md mt-2 z-10'>
-                      <ul className='text-gray-700'>
-                        <li
-                          className='px-4 py-2 w-52 flex gap-2 items-center cursor-pointer hover:bg-gray-100'
-                          onClick={() => handleInsertPolygon(idx, 'before')}
-                        >
-                          <ArrowLeftStartOnRectangleIcon className='w-4 h-4' />
-                          <p>Insert Polygon Before</p>
-                        </li>
-                        <li
-                          className='px-4 py-2 w-52 flex gap-2 cursor-pointer items-center hover:bg-gray-100'
-                          onClick={() => handleInsertPolygon(idx, 'after')}
-                        >
-                          <ArrowRightStartOnRectangleIcon className='w-4 h-4' />
-                          <p>Insert Polygon After</p>
-                        </li>
-                      </ul>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ),
+      content: processedCoords,
     })
     setIsModalOpen(true)
   }
@@ -171,28 +124,72 @@ const MapApp = () => {
     mapInstance.current.getCanvas().style.cursor = ''
   }
 
+  const onDropdownClick = (idx) => {
+    setDropdownVisible(dropdownVisible === idx ? null : idx)
+  }
+
+  const handlePolygonToolClick = () => {
+    drawControl.current.changeMode('draw_polygon')
+    mapInstance.current.getCanvas().style.cursor = 'crosshair'
+
+    const handlePolygonDrawComplete = () => {
+      const features = drawControl.current.getAll()
+
+      if (features.features.length > 0) {
+        const feature = features.features[features.features.length - 1]
+        if (feature.geometry.type === 'Polygon') {
+          const coordinates = feature.geometry.coordinates[0]
+          const processedCoords = coordinates.map((coord, index) => ({
+            WP: `${index.toString().padStart(2, '0')}`,
+            Coordinates: `${coord[1].toFixed(8)}, ${coord[0].toFixed(8)}`,
+            Distance: index > 0 ? calculateDistance(coordinates[index - 1], coord) : 0,
+          }))
+
+          setPolygonToolData({
+            title: 'Polygon Tool Coordinates',
+            content: processedCoords,
+          })
+
+          setIsPolygonToolModalOpen(true)
+          setIsModalOpen(false)
+        }
+      }
+      mapInstance.current.off('draw.create', handlePolygonDrawComplete)
+    }
+    mapInstance.current.on('draw.create', handlePolygonDrawComplete)
+  }
+
   return (
     <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
       <div id='map' ref={mapContainer} style={{ width: '100%', height: '100%', position: 'absolute' }}></div>
-
-      <div className='absolute space-x-4 p-2'>
-        <button className='bg-red-500 text-white p-2 rounded' onClick={drawPolygon}>
-          Draw Polygon
-        </button>
-        <button className=' bg-blue-500 text-white p-2 rounded' onClick={drawLineString}>
-          Draw LineString
-        </button>
-        <button className=' bg-gray-500 text-white p-2 rounded' onClick={deleteAllFeatures}>
-          Delete All
-        </button>
-      </div>
-
+      <MapControls
+        drawPolygon={drawPolygon}
+        drawLineString={drawLineString}
+        deleteAllFeatures={deleteAllFeatures}
+        handlePolygonToolClick={handlePolygonToolClick}
+      />
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title={modalData?.title}
         header='Mission Creation'
-        content={modalData?.content}
+        btnName='Generate Data'
+        content={
+          <TableComponent
+            processedCoords={modalData?.content}
+            dropdownVisible={dropdownVisible}
+            onClick={onDropdownClick}
+            handleInsertPolygon={handleInsertPolygon}
+          />
+        }
+      />
+      <Modal
+        isOpen={isPolygonToolModalOpen}
+        onClose={() => setIsPolygonToolModalOpen(false)}
+        title={polygonToolData?.title}
+        header='Polygon Tool'
+        btnName='Imports Points'
+        content={<TableComponent processedCoords={polygonToolData?.content} />}
       />
     </div>
   )
